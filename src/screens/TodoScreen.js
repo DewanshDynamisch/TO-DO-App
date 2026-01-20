@@ -8,7 +8,6 @@ import {
   TextInput,
   Alert,
   Animated,
-  Platform,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -24,15 +23,14 @@ import {
   showTaskDeletedNotification,
 } from '../utils/notificationService';
 
-export default function TodoScreen() {
-  /*  REDUX  */
+export default function TodoScreen({ user, onLogout }) {
   const dispatch = useDispatch();
   const todos = useSelector(state => state.todos.list);
   const darkMode = useSelector(state => state.ui.darkMode);
 
   const theme = darkMode ? darkTheme : lightTheme;
+  const userId = user.userId;
 
-  /*FORM STATE  */
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
@@ -40,82 +38,107 @@ export default function TodoScreen() {
   const [editingId, setEditingId] = useState(null);
   const [showPicker, setShowPicker] = useState(false);
 
-  /*  SWIPE*/
   const swipeRefs = useRef({});
-  const openSwipeRef = useRef(null);
 
-  const closeAllSwipes = () => {
-    Object.values(swipeRefs.current).forEach(ref => {
-      try {
-        ref?.close();
-      } catch {}
-    });
-    swipeRefs.current = {};
-    openSwipeRef.current = null;
-  };
+  /*  FIRESTORE  */
+
+  // useEffect(() => {
+  //   if (!userId) return;
+
+  //   const unsub = firestore()
+  //     .collection('todos')
+  //     .doc(userId)
+  //     .collection('tasks')
+  //     .onSnapshot(snapshot => {
+  //       const list = snapshot.docs.map(doc => {
+  //         const d = doc.data();
+  //         return {
+  //           id: doc.id,
+  //           ...d,
+  //           dueDate: d.dueDate ? d.dueDate.toMillis() : null,
+  //         };
+  //       });
+
+  //       dispatch(setTodos(list));
+  //     });
+
+  //   return unsub;
+  // }, [userId]);
 
   useEffect(() => {
-    return () => {
-      closeAllSwipes();
-    };
-  }, []);
+    if (!user?.userId) return;
 
-  const onSwipeOpen = id => {
-    if (openSwipeRef.current && openSwipeRef.current !== id) {
-      swipeRefs.current[openSwipeRef.current]?.close();
-    }
-    openSwipeRef.current = id;
-  };
-
-  const closeSwipeOnScroll = () => {
-    if (openSwipeRef.current) {
-      swipeRefs.current[openSwipeRef.current]?.close();
-      openSwipeRef.current = null;
-    }
-  };
-
-  /*  FIRESTORE LISTENER  */
-  useEffect(() => {
-    const unsubscribe = firestore()
+    const unsub = firestore()
       .collection('todos')
+      .doc(user.userId)
+      .collection('tasks')
       .onSnapshot(snapshot => {
         const list = snapshot.docs.map(doc => {
           const d = doc.data();
           return {
             id: doc.id,
-            title: d.title,
-            note: d.note || '',
-            completed: !!d.completed,
+            ...d,
             dueDate: d.dueDate ? d.dueDate.toMillis() : null,
+            createdAt: d.createdAt ? d.createdAt.toMillis() : null,
           };
         });
+
         dispatch(setTodos(list));
-      });
+    });
 
-    return unsubscribe;
-  }, [dispatch]);
+  return unsub;
+ }, [user?.userId]);
 
-  /* COMPLETE ALL  */
+
+  /* COMPLETE ALL */
+
   const allCompleted =
     todos.length > 0 && todos.every(t => t.completed);
 
-  const toggleAllTasks = async () => {
+  const toggleAll = async () => {
     const batch = firestore().batch();
-    todos.forEach(task => {
+    todos.forEach(t => {
       batch.update(
-        firestore().collection('todos').doc(task.id),
+        firestore()
+          .collection('todos')
+          .doc(userId)
+          .collection('tasks')
+          .doc(t.id),
         { completed: !allCompleted }
       );
     });
     await batch.commit();
   };
 
-  /*  SAVE TASK */
+  const deleteAllCompleted = () => {
+    Alert.alert('Delete All', 'Delete all completed tasks?', [
+      { text: 'Cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const batch = firestore().batch();
+          todos.forEach(t => {
+            if (t.completed) {
+              batch.delete(
+                firestore()
+                  .collection('todos')
+                  .doc(userId)
+                  .collection('tasks')
+                  .doc(t.id)
+              );
+            }
+          });
+          await batch.commit();
+        },
+      },
+    ]);
+  };
+
+  /* CRUD */
+
   const saveTask = async () => {
-    if (!title.trim()) {
-      Alert.alert('Error', 'Title is required');
-      return;
-    }
+    if (!title.trim()) return Alert.alert('Title required');
 
     const payload = {
       title,
@@ -126,90 +149,105 @@ export default function TodoScreen() {
     };
 
     if (editingId) {
-      await firestore().collection('todos').doc(editingId).update(payload);
-      await showTaskUpdatedNotification(title);
+      await firestore()
+        .collection('todos')
+        .doc(userId)
+        .collection('tasks')
+        .doc(editingId)
+        .update(payload);
+
+      showTaskUpdatedNotification(title);
     } else {
-      await firestore().collection('todos').add({
-        ...payload,
-        completed: false,
-        createdAt: firestore.FieldValue.serverTimestamp(),
-      });
-      await showTaskAddedNotification(title);
+      await firestore()
+        .collection('todos')
+        .doc(userId)
+        .collection('tasks')
+        .add({
+          ...payload,
+          completed: false,
+          createdAt: firestore.FieldValue.serverTimestamp(),
+        });
+
+      showTaskAddedNotification(title);
     }
 
     resetForm();
   };
 
   const resetForm = () => {
+    setShowForm(false);
     setTitle('');
     setNote('');
     setDueDate(null);
     setEditingId(null);
-    setShowForm(false);
   };
 
-  /*TASK ACTIONS */
   const toggleTask = task =>
-    firestore().collection('todos').doc(task.id).update({
-      completed: !task.completed,
-    });
+    firestore()
+      .collection('todos')
+      .doc(userId)
+      .collection('tasks')
+      .doc(task.id)
+      .update({ completed: !task.completed });
 
-  const deleteTask = id =>
+  const deleteTask = id => {
     Alert.alert('Delete Task', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
+      { text: 'Cancel' },
       {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          await firestore().collection('todos').doc(id).delete();
-          await showTaskDeletedNotification();
+          await firestore()
+            .collection('todos')
+            .doc(userId)
+            .collection('tasks')
+            .doc(id)
+            .delete();
+
+          showTaskDeletedNotification();
         },
       },
     ]);
+  };
 
-  /*  DATE SECTIONS (GROUPING) */
+  /* GROUPING */
+
   const sections = useMemo(() => {
-    const overdue = [];
-    const today = [];
-    const tomorrow = [];
-    const upcoming = [];
-    const later = [];
+    if (!todos.length) return [];
 
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    const tmr = new Date(now);
-    tmr.setDate(tmr.getDate() + 1);
+    const groups = {
+      Overdue: [],
+      Today: [],
+      Upcoming: [],
+      Later: [],
+    };
 
     todos.forEach(t => {
-      if (!t.dueDate) {
-        later.push(t);
-        return;
-      }
+      if (!t.dueDate) return groups.Later.push(t);
 
       const d = new Date(t.dueDate);
       d.setHours(0, 0, 0, 0);
 
-      if (d < now) overdue.push(t);
-      else if (d.getTime() === now.getTime()) today.push(t);
-      else if (d.getTime() === tmr.getTime()) tomorrow.push(t);
-      else upcoming.push(t);
+      if (d < today) groups.Overdue.push(t);
+      else if (d.getTime() === today.getTime())
+        groups.Today.push(t);
+      else groups.Upcoming.push(t);
     });
 
-    return [
-      { title: 'Overdue', data: overdue },
-      { title: 'Today', data: today },
-      { title: 'Tomorrow', data: tomorrow },
-      { title: 'Upcoming', data: upcoming },
-      { title: 'Later', data: later },
-    ].filter(s => s.data.length);
+    return Object.entries(groups)
+      .filter(([, v]) => v.length)
+      .map(([title, data]) => ({ title, data }));
   }, [todos]);
 
-  /*  SWIPE ACTIONS  */
-  const renderRightActions = (progress, dragX, item) => {
+  /* SWIPE */
+
+  const renderRightActions = (progress, dragX, task) => {
     const translateX = dragX.interpolate({
-      inputRange: [-160, 0],
-      outputRange: [0, 160],
+      inputRange: [-150, 0],
+      outputRange: [0, 150],
       extrapolate: 'clamp',
     });
 
@@ -220,10 +258,11 @@ export default function TodoScreen() {
         <TouchableOpacity
           style={[styles.actionBtn, styles.edit]}
           onPress={() => {
-            setEditingId(item.id);
-            setTitle(item.title);
-            setNote(item.note);
-            setDueDate(item.dueDate ? new Date(item.dueDate) : null);
+            swipeRefs.current[task.id]?.close();
+            setEditingId(task.id);
+            setTitle(task.title);
+            setNote(task.note);
+            setDueDate(task.dueDate ? new Date(task.dueDate) : null);
             setShowForm(true);
           }}
         >
@@ -233,8 +272,8 @@ export default function TodoScreen() {
         <TouchableOpacity
           style={[styles.actionBtn, styles.delete]}
           onPress={() => {
-            closeAllSwipes();
-            deleteTask(item.id);
+            swipeRefs.current[task.id]?.close();
+            deleteTask(task.id);
           }}
         >
           <Text>Delete</Text>
@@ -243,70 +282,43 @@ export default function TodoScreen() {
     );
   };
 
-  /*  RENDER TASK  */
-  const renderTask = task => {
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
+  const renderTask = task => (
+    <Swipeable
+      ref={r => (swipeRefs.current[task.id] = r)}
+      renderRightActions={(p, d) =>
+        renderRightActions(p, d, task)
+      }
+    >
+      <View style={[styles.card, theme.card]}>
+        <TouchableOpacity
+          style={[
+            styles.checkbox,
+            task.completed && styles.checked,
+          ]}
+          onPress={() => toggleTask(task)}
+        />
 
-    const isOverdue =
-      task.dueDate && new Date(task.dueDate) < todayDate;
+        <View style={{ flex: 1 }}>
+          <Text
+            style={[
+              styles.titleText,
+              theme.text,
+              task.completed && styles.done,
+            ]}
+          >
+            {task.title}
+          </Text>
 
-    return (
-      <View key={task.id} style={styles.swipeWrap}>
-        <Swipeable
-          ref={ref => (swipeRefs.current[task.id] = ref)}
-          onSwipeableWillOpen={() => onSwipeOpen(task.id)}
-          renderRightActions={(p, d) =>
-            renderRightActions(p, d, task)
-          }
-          overshootRight={false}
-        >
-          <View style={[styles.card, theme.card]}>
-            <TouchableOpacity
-              style={[
-                styles.checkbox,
-                task.completed && styles.checked,
-              ]}
-              onPress={() => toggleTask(task)}
-            />
-
-            <View style={{ flex: 1 }}>
-              <Text
-                style={[
-                  styles.titleText,
-                  theme.text,
-                  task.completed && styles.done,
-                ]}
-              >
-                {task.title}
-              </Text>
-
-              {!!task.note && (
-                <Text style={[styles.note, theme.sub]}>
-                  {task.note}
-                </Text>
-              )}
-
-             {!!task.dueDate && (
-                <Text
-                  style={[
-                    styles.date,
-                    isOverdue ? styles.overdueText : theme.sub,
-                  ]}
-                >
-                  {isOverdue && ' Overdue • '}
-                  Due: {new Date(task.dueDate).toDateString()}
-                </Text>
-              )}
-
-            </View>
-          </View>
-        </Swipeable>
+          {!!task.note && (
+            <Text style={theme.sub}>{task.note}</Text>
+          )}
+        </View>
       </View>
-    );
-  };
+    </Swipeable>
+  );
 
-  /*  ADD / EDIT FORM = */
+  /*  FORM  */
+
   if (showForm) {
     return (
       <View style={[styles.container, theme.bg]}>
@@ -315,33 +327,32 @@ export default function TodoScreen() {
         </Text>
 
         <TextInput
-          placeholder="Title"
-          placeholderTextColor={theme.placeholder}
           value={title}
           onChangeText={setTitle}
-          style={[styles.input, theme.card, theme.text]}
+          placeholder="Title"
+          placeholderTextColor={darkMode ? '#94A3B8' : '#6B7280'}
+          style={[styles.input, theme.card,
+            { color: theme.text.color }
+          ]}
         />
 
         <TextInput
-          placeholder="Note"
-          placeholderTextColor={theme.placeholder}
           value={note}
           onChangeText={setNote}
-          style={[
-            styles.input,
-            styles.noteInput,
-            theme.card,
-            theme.text,
-          ]}
+          placeholder="Note"
           multiline
+          placeholderTextColor={darkMode ? '#94A3B8' : '#6B7280'}
+          style={[styles.input, styles.noteInput, theme.card,
+            { color: theme.text.color }
+          ]}
         />
 
         <TouchableOpacity
-          style={[styles.dateBtn, theme.card]}
+          style={styles.dateBtn}
           onPress={() => setShowPicker(true)}
         >
-          <Text style={theme.text}>
-            {dueDate ? dueDate.toDateString() : 'Pick Due Date'}
+          <Text  style={{ color: theme.text.color }}>
+            {dueDate ? dueDate.toDateString() : 'Pick Date'}
           </Text>
         </TouchableOpacity>
 
@@ -349,7 +360,6 @@ export default function TodoScreen() {
           <DateTimePicker
             value={dueDate || new Date()}
             mode="date"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             onChange={(_, d) => {
               setShowPicker(false);
               if (d) setDueDate(d);
@@ -358,9 +368,7 @@ export default function TodoScreen() {
         )}
 
         <TouchableOpacity style={styles.saveBtn} onPress={saveTask}>
-          <Text style={{ color: '#fff' }}>
-            {editingId ? 'Update' : 'Save'}
-          </Text>
+          <Text style={{ color: '#fff' }}>Save</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={resetForm}>
@@ -371,49 +379,78 @@ export default function TodoScreen() {
   }
 
   /*  MAIN UI */
+
   return (
     <View style={[styles.container, theme.bg]}>
-      <View style={styles.headerWrapper}>
-        <View style={styles.header}>
-          <Text style={[styles.headerText, theme.text]}>
-            My Tasks
-          </Text>
+      <View style={styles.header}>
+        <Text style={[styles.headerText, theme.text]}>
+          My Tasks
+        </Text>
 
+        <View style={{ flexDirection: 'row', gap: 16 }}>
           <TouchableOpacity onPress={() => dispatch(toggleDarkMode())}>
-            <Text>{darkMode ? '🌙' : '☀️'}</Text>
+            <Text style={theme.text}>
+              {darkMode ? 'Light' : 'Dark'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={onLogout}>
+            <Text style={styles.logout}>Logout</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <TouchableOpacity
-        style={styles.completeAllBtn}
-        onPress={toggleAllTasks}
-      >
-        <Text style={styles.completeAllText}>
-          {allCompleted ? 'Mark all incomplete' : 'Complete all'}
-        </Text>
-      </TouchableOpacity>
+      {todos.length === 0 && (
+        <View style={styles.emptyState}>
+          <Text style={[styles.emptyTitle, theme.text]}>
+            No tasks yet 
+          </Text>
+          <Text style={theme.sub}>
+            Tap + to add your first task
+          </Text>
+        </View>
+      )}
 
-      <FlatList
-        data={sections}
-        keyExtractor={s => s.title}
-        onScrollBeginDrag={closeSwipeOnScroll}
-        renderItem={({ item }) => (
-          <>
-            <Text style={[styles.section, theme.sub]}>
-              {item.title}
+      {todos.length > 0 && (
+        <>
+          <TouchableOpacity
+            style={styles.completeBtn}
+            onPress={toggleAll}
+          >
+            <Text style={styles.completeText}>
+              {allCompleted ? 'Undo All' : 'Complete All'}
             </Text>
-            {item.data.map(renderTask)}
-          </>
-        )}
-      />
+          </TouchableOpacity>
+
+          {allCompleted && (
+            <TouchableOpacity
+              style={styles.deleteAll}
+              onPress={deleteAllCompleted}
+            >
+              <Text style={{ color: '#fff' }}>Delete All</Text>
+            </TouchableOpacity>
+          )}
+
+          <FlatList
+            data={sections}
+            keyExtractor={item => item.title}
+            renderItem={({ item }) => (
+              <>
+                <Text style={[styles.section, theme.sub]}>
+                  {item.title}
+                </Text>
+                {item.data.map(task => (
+                  <View key={task.id}>{renderTask(task)}</View>
+                ))}
+              </>
+            )}
+          />
+        </>
+      )}
 
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => {
-          closeAllSwipes();
-          setShowForm(true);
-        }}
+        onPress={() => setShowForm(true)}
       >
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
@@ -422,50 +459,28 @@ export default function TodoScreen() {
 }
 
 /*  STYLES  */
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20 },
-
-  headerWrapper: {
-    paddingTop: 20,
-    paddingBottom: 16,
-  },
-
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
+  container: { flex: 1, padding: 20, paddingTop: 50 },
+  header: { flexDirection: 'row', justifyContent: 'space-between' },
   headerText: { fontSize: 28, fontWeight: '700' },
+  logout: { color: 'red' },
 
-  formTitle: {
-    fontSize: 26,
-    fontWeight: '700',
-    marginTop: 40,
-    marginBottom: 24,
-  },
-
-  section: {
-    marginTop: 20,
-    marginBottom: 8,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-
-  swipeWrap: { marginBottom: 10 },
+  emptyState: { marginTop: 80, alignItems: 'center' },
+  emptyTitle: { fontSize: 22, fontWeight: '700' },
 
   card: {
     flexDirection: 'row',
     padding: 16,
-    borderRadius: 16,
-    alignItems: 'center',
+    borderRadius: 14,
+    marginBottom: 10,
   },
 
   checkbox: {
     width: 22,
     height: 22,
-    borderRadius: 6,
     borderWidth: 2,
+    borderRadius: 6,
     borderColor: '#6366F1',
     marginRight: 14,
   },
@@ -473,58 +488,47 @@ const styles = StyleSheet.create({
   checked: { backgroundColor: '#6366F1' },
 
   titleText: { fontSize: 16, fontWeight: '600' },
-  note: { marginTop: 4 },
-  date: { marginTop: 4, fontSize: 12 },
-
-  overdueText: {
-    color: '#DC2626',
-    fontWeight: '700',
-  },
-
   done: { textDecorationLine: 'line-through', opacity: 0.5 },
 
-  actions: { flexDirection: 'row', width: 160 },
-
-  actionBtn: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
+  actions: { width: 150, flexDirection: 'row' },
+  actionBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   edit: { backgroundColor: '#DBEAFE' },
   delete: { backgroundColor: '#FEE2E2' },
 
   fab: {
     position: 'absolute',
-    right: 24,
     bottom: 30,
+    right: 30,
+    backgroundColor: '#6366F1',
     height: 56,
     width: 56,
     borderRadius: 28,
-    backgroundColor: '#6366F1',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
   },
 
-  fabText: { color: '#fff', fontSize: 32 },
+  fabText: { color: '#fff', fontSize: 30 },
 
-  completeAllBtn: {
-    marginVertical: 14,
-    padding: 12,
-    borderRadius: 14,
+  completeBtn: {
     backgroundColor: '#EEF2FF',
-    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    marginVertical: 10,
   },
 
-  completeAllText: {
-    color: '#4F46E5',
-    fontWeight: '600',
+  completeText: { textAlign: 'center', fontWeight: '600' },
+
+  deleteAll: {
+    backgroundColor: '#DC2626',
+    padding: 12,
+    borderRadius: 12,
+    alignItems: 'center',
   },
 
   input: {
     padding: 14,
     borderRadius: 12,
-    marginBottom: 14,
+    marginBottom: 12,
   },
 
   noteInput: { height: 100 },
@@ -532,7 +536,7 @@ const styles = StyleSheet.create({
   dateBtn: {
     padding: 14,
     borderRadius: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
 
   saveBtn: {
@@ -547,15 +551,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#6B7280',
   },
+
+  formTitle: { fontSize: 28, fontWeight: '700' },
 });
 
-/* THEMES */
 const lightTheme = {
   bg: { backgroundColor: '#F9FAFB' },
-  card: { backgroundColor: '#FFFFFF' },
-  text: { color: '#111827' },
-  sub: { color: '#6B7280' },
-  placeholder: '#9CA3AF',
+  card: { backgroundColor: '#fff' },
+  text: { color: '#111' },
+  sub: { color: '#666' },
 };
 
 const darkTheme = {
@@ -563,5 +567,4 @@ const darkTheme = {
   card: { backgroundColor: '#1E293B' },
   text: { color: '#E5E7EB' },
   sub: { color: '#94A3B8' },
-  placeholder: '#9CA3AF',
 };
