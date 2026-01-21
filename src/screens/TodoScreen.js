@@ -42,28 +42,6 @@ export default function TodoScreen({ user, onLogout }) {
 
   /*  FIRESTORE  */
 
-  // useEffect(() => {
-  //   if (!userId) return;
-
-  //   const unsub = firestore()
-  //     .collection('todos')
-  //     .doc(userId)
-  //     .collection('tasks')
-  //     .onSnapshot(snapshot => {
-  //       const list = snapshot.docs.map(doc => {
-  //         const d = doc.data();
-  //         return {
-  //           id: doc.id,
-  //           ...d,
-  //           dueDate: d.dueDate ? d.dueDate.toMillis() : null,
-  //         };
-  //       });
-
-  //       dispatch(setTodos(list));
-  //     });
-
-  //   return unsub;
-  // }, [userId]);
 
   useEffect(() => {
     if (!user?.userId) return;
