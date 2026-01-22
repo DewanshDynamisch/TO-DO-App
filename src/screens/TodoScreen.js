@@ -51,6 +51,7 @@ export default function TodoScreen({ user, onLogout }) {
       .doc(user.userId)
       .collection('tasks')
       .onSnapshot(snapshot => {
+        if (!snapshot) return;
         const list = snapshot.docs.map(doc => {
           const d = doc.data();
           return {
@@ -259,41 +260,65 @@ export default function TodoScreen({ user, onLogout }) {
       </Animated.View>
     );
   };
+  const isOverdue = date => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  const renderTask = task => (
-    <Swipeable
-      ref={r => (swipeRefs.current[task.id] = r)}
-      renderRightActions={(p, d) =>
-        renderRightActions(p, d, task)
-      }
-    >
-      <View style={[styles.card, theme.card]}>
-        <TouchableOpacity
+    const due = new Date(date);
+    due.setHours(0, 0, 0, 0);
+
+    return due < today;
+  };
+
+const renderTask = task => (
+  <Swipeable
+    ref={r => (swipeRefs.current[task.id] = r)}
+    renderRightActions={(p, d) =>
+      renderRightActions(p, d, task)
+    }
+  >
+    <View style={[styles.card, theme.card]}>
+      <TouchableOpacity
+        style={[
+          styles.checkbox,
+          task.completed && styles.checked,
+        ]}
+        onPress={() => toggleTask(task)}
+      />
+
+      <View style={{ flex: 1 }}>
+        {/* TITLE */}
+        <Text
           style={[
-            styles.checkbox,
-            task.completed && styles.checked,
+            styles.titleText,
+            theme.text,
+            task.completed && styles.done,
           ]}
-          onPress={() => toggleTask(task)}
-        />
+        >
+          {task.title}
+        </Text>
 
-        <View style={{ flex: 1 }}>
+        {/* NOTE */}
+        {!!task.note && (
+          <Text style={theme.sub}>{task.note}</Text>
+        )}
+
+        {/* ✅ DUE DATE */}
+        {task.dueDate && (
           <Text
             style={[
-              styles.titleText,
-              theme.text,
-              task.completed && styles.done,
+              styles.dueDate,
+              isOverdue(task.dueDate) && styles.overdue,
             ]}
           >
-            {task.title}
+            Due: {new Date(task.dueDate).toDateString()}
           </Text>
-
-          {!!task.note && (
-            <Text style={theme.sub}>{task.note}</Text>
-          )}
-        </View>
+        )}
       </View>
-    </Swipeable>
-  );
+    </View>
+  </Swipeable>
+);
+
 
   /*  FORM  */
 
@@ -529,6 +554,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#6B7280',
   },
+  dueDate :{
+    margin:4,
+    fontSize :12,
+    color : '#6B7280',
+  },
+  overdue : {
+    color :'#DC2626',
+    fontWeight :'600',
+  },
+
+
 
   formTitle: { fontSize: 28, fontWeight: '700' },
 });

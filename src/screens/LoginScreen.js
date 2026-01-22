@@ -13,9 +13,10 @@ class LoginScreen extends Component {
   state = {
     username: '',
     password: '',
+    showPassword: false, 
   };
 
-  /*  VALIDATION */
+  /* VALIDATION */
 
   validateInput = () => {
     const { username, password } = this.state;
@@ -77,14 +78,17 @@ class LoginScreen extends Component {
     this.props.onLoginSuccess(userData);
   };
 
+  /*  UI */
+
   render() {
-    const { username, password } = this.state;
+    const { username, password, showPassword } = this.state;
 
     return (
       <View style={styles.container}>
         <Text style={styles.appName}>ToDo App</Text>
-        <Text style={styles.title}>Welcome Back</Text>
+        <Text style={styles.title}>Welcome</Text>
 
+        {/* USERNAME */}
         <View style={styles.inputBox}>
           <Text style={styles.label}>Username</Text>
           <TextInput
@@ -97,18 +101,36 @@ class LoginScreen extends Component {
           />
         </View>
 
+        {/* PASSWORD */}
         <View style={styles.inputBox}>
           <Text style={styles.label}>Password</Text>
-          <TextInput
-            placeholder="Enter password"
-            placeholderTextColor="#9CA3AF"
-            value={password}
-            onChangeText={text => this.setState({ password: text })}
-            secureTextEntry
-            style={styles.input}
-          />
+
+          <View style={styles.passwordWrapper}>
+            <TextInput
+              placeholder="Enter password"
+              placeholderTextColor="#9CA3AF"
+              value={password}
+              onChangeText={text =>
+                this.setState({ password: text })
+              }
+              secureTextEntry={!showPassword}
+              style={styles.passwordInput}
+            />
+
+            {/* 👁 Toggle Button */}
+            <TouchableOpacity
+              onPress={() =>
+                this.setState({ showPassword: !showPassword })
+              }
+            >
+              <Text style={styles.eye}>
+                {showPassword ? '🙈' : '👁️'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
+        {/* LOGIN BUTTON */}
         <TouchableOpacity
           style={styles.button}
           onPress={this.handleLogin}
@@ -126,7 +148,7 @@ class LoginScreen extends Component {
 
 export default LoginScreen;
 
-/* ================= STYLES ================= */
+/* STYLES  */
 
 const styles = StyleSheet.create({
   container: {
@@ -170,6 +192,27 @@ const styles = StyleSheet.create({
     padding: 14,
     fontSize: 16,
     backgroundColor: '#fff',
+  },
+
+  passwordWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+  },
+
+  passwordInput: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 16,
+  },
+
+  eye: {
+    fontSize: 18,
+    paddingHorizontal: 8,
   },
 
   button: {
